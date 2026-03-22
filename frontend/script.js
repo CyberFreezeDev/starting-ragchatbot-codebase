@@ -122,10 +122,11 @@ function addMessage(content, type, sources = null, isWelcome = false) {
     let html = `<div class="message-content">${displayContent}</div>`;
     
     if (sources && sources.length > 0) {
+        const uniqueSources = [...new Set(sources)];
         html += `
             <details class="sources-collapsible">
                 <summary class="sources-header">Sources</summary>
-                <div class="sources-content">${sources.join(', ')}</div>
+                <ul class="sources-content">${uniqueSources.map(s => `<li>${s}</li>`).join('')}</ul>
             </details>
         `;
     }

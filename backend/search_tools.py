@@ -118,8 +118,16 @@ class CourseSearchTool(Tool):
             
             formatted.append(f"{header}\n{doc}")
         
+        # Deduplicate sources while preserving order
+        seen = set()
+        unique_sources = []
+        for s in sources:
+            if s not in seen:
+                seen.add(s)
+                unique_sources.append(s)
+
         # Store sources for retrieval
-        self.last_sources = sources
+        self.last_sources = unique_sources
         
         return "\n\n".join(formatted)
 

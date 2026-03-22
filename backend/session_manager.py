@@ -31,8 +31,9 @@ class SessionManager:
         self.sessions[session_id].append(message)
         
         # Keep conversation history within limits
-        if len(self.sessions[session_id]) > self.max_history * 2:
-            self.sessions[session_id] = self.sessions[session_id][-self.max_history * 2:]
+        limit = self.max_history * 2
+        if len(self.sessions[session_id]) > limit:
+            self.sessions[session_id] = self.sessions[session_id][-limit:] if limit > 0 else []
     
     def add_exchange(self, session_id: str, user_message: str, assistant_message: str):
         """Add a complete question-answer exchange"""
