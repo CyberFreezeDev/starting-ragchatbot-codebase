@@ -8,9 +8,9 @@ load_dotenv()
 @dataclass
 class Config:
     """Configuration settings for the RAG system"""
-    # Anthropic API settings
-    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
-    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
+    # Ollama API settings
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434/v1"
+    OLLAMA_MODEL: str = "qwen2.5"
     
     # Embedding model settings
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
