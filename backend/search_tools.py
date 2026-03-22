@@ -131,6 +131,143 @@ class CourseSearchTool(Tool):
         
         return "\n\n".join(formatted)
 
+class SearchNewsTool(Tool):
+    """Tool for searching live news articles indexed from RSS feeds."""
+
+    def __init__(self, vector_store: VectorStore):
+        self.store = vector_store
+        self.last_sources = []
+
+    def get_tool_definition(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": "search_news",
+                "description": (
+                    "Search today's live news headlines and articles. "
+                    "Use this for questions about current events, breaking news, or recent developments. "
+                    "Do NOT use this for course content questions."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "What to search for in the news"
+                        },
+                        "section": {
+                            "type": "string",
+                            "description": "Optional news section, e.g. 'technology', 'world', 'business'"
+                        },
+                        "max_hours_old": {
+                            "type": "integer",
+                            "description": "Only return articles fetched within this many hours (default: 72)"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }
+
+    def execute(self, query: str, section: Optional[str] = None, max_hours_old: Optional[int] = None) -> str:
+        results = self.store.search_news(
+            query=query,
+            section=section,
+            max_hours_old=max_hours_old,
+        )
+
+        if results.error:
+            return results.error
+
+        if results.is_empty():
+            return "No relevant news found. The news index may be empty — try refreshing via /api/news/refresh."
+
+        return self._format_results(results)
+
+    def _format_results(self, results) -> str:
+        formatted = []
+        sources = []
+
+        for doc, meta in zip(results.documents, results.metadata):
+            title = meta.get("title", "")
+            url = meta.get("url", "")
+            source = meta.get("source", "News")
+            published_at = meta.get("published_at", "")
+
+            header = f"[{source}] {title}"
+            if published_at:
+                try:
+                    from datetime import datetime, timezone
+                    dt = datetime.fromisoformat(published_at)
+                    header += f" ({dt.strftime('%b %d, %Y')})"
+                except Exception:
+                    pass
+
+            formatted.append(f"{header}\n{doc}")
+
+            source_label = f"{title} — {url}" if url else title
+            if source_label not in sources:
+                sources.append(source_label)
+
+        self.last_sources = sources
+        return "\n\n".join(formatted)
+
+
+class SearchWebTool(Tool):
+    """Tool for live web search via headless Chromium (Google→Bing→DuckDuckGo fallback)."""
+
+    def __init__(self, web_searcher):
+        self.web_searcher = web_searcher
+        self.last_sources = []
+
+    def get_tool_definition(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": "search_web",
+                "description": (
+                    "Search the internet for any general knowledge, technical topics, or information "
+                    "not covered by course materials or news. Use for 'how does X work', 'latest X', "
+                    "definitions, tutorials, comparisons, etc. Do NOT use for course content or today's news."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "What to search for on the web"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }
+
+    def execute(self, query: str, **kwargs) -> str:
+        results = self.web_searcher.search(query)
+
+        if not results:
+            return "Web search returned no results. All search engines may be temporarily unavailable."
+
+        self.last_sources = [r["url"] for r in results if r.get("url")]
+        return self._format_results(results)
+
+    def _format_results(self, results: list) -> str:
+        parts = []
+        for r in results:
+            engine = r.get("engine", "Web")
+            title = r.get("title", "")
+            snippet = r.get("snippet", "")
+            url = r.get("url", "")
+            block = f"[{engine}] {title}"
+            if snippet:
+                block += f"\n{snippet}"
+            if url:
+                block += f"\nURL: {url}"
+            parts.append(block)
+        return "\n\n".join(parts)
+
+
 class ToolManager:
     """Manages available tools for the AI"""
     

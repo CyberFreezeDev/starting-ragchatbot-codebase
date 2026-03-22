@@ -4,7 +4,9 @@ from document_processor import DocumentProcessor
 from vector_store import VectorStore
 from ai_generator import AIGenerator
 from session_manager import SessionManager
-from search_tools import ToolManager, CourseSearchTool
+from search_tools import ToolManager, CourseSearchTool, SearchNewsTool, SearchWebTool
+from news_manager import NewsRefreshManager
+from web_searcher import WebSearcher
 from models import Course, Lesson, CourseChunk
 
 class RAGSystem:
@@ -23,6 +25,21 @@ class RAGSystem:
         self.tool_manager = ToolManager()
         self.search_tool = CourseSearchTool(self.vector_store)
         self.tool_manager.register_tool(self.search_tool)
+        self.news_tool = SearchNewsTool(self.vector_store)
+        self.tool_manager.register_tool(self.news_tool)
+        self.web_searcher = WebSearcher(max_results=config.WEB_SEARCH_MAX_RESULTS)
+        self.web_tool = SearchWebTool(self.web_searcher)
+        self.tool_manager.register_tool(self.web_tool)
+
+        # News refresh manager
+        self.news_manager = NewsRefreshManager(
+            vector_store=self.vector_store,
+            rss_url=config.NEWS_RSS_URL,
+            max_articles=config.NEWS_MAX_ARTICLES,
+            retention_hours=config.NEWS_RETENTION_HOURS,
+            chunk_size=config.CHUNK_SIZE,
+            chunk_overlap=config.CHUNK_OVERLAP,
+        )
     
     def add_course_document(self, file_path: str) -> Tuple[Course, int]:
         """
@@ -139,6 +156,11 @@ class RAGSystem:
         # Return response with sources from tool searches
         return response, sources
     
+    def refresh_news(self) -> Dict:
+        """Fetch latest news articles and store them in the vector DB."""
+        articles_added, chunks_added = self.news_manager.refresh()
+        return {"articles_added": articles_added, "chunks_added": chunks_added}
+
     def get_course_analytics(self) -> Dict:
         """Get analytics about the course catalog"""
         return {

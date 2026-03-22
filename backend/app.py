@@ -85,9 +85,41 @@ async def get_course_stats():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class NewsRefreshResponse(BaseModel):
+    """Response model for news refresh"""
+    articles_added: int
+    chunks_added: int
+
+
+class NewsSourcesResponse(BaseModel):
+    """Response model for news sources"""
+    urls: List[str]
+    total: int
+
+
+@app.post("/api/news/refresh", response_model=NewsRefreshResponse)
+async def refresh_news():
+    """Fetch latest news from RSS feed and index into vector store"""
+    try:
+        result = rag_system.refresh_news()
+        return NewsRefreshResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/news/sources", response_model=NewsSourcesResponse)
+async def get_news_sources():
+    """List all currently indexed news article URLs"""
+    try:
+        urls = rag_system.vector_store.get_existing_news_urls()
+        return NewsSourcesResponse(urls=urls, total=len(urls))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.on_event("startup")
 async def startup_event():
-    """Load initial documents on startup"""
+    """Load initial documents and refresh news on startup"""
     docs_path = "../docs"
     if os.path.exists(docs_path):
         print("Loading initial documents...")
@@ -96,6 +128,13 @@ async def startup_event():
             print(f"Loaded {courses} courses with {chunks} chunks")
         except Exception as e:
             print(f"Error loading documents: {e}")
+
+    print("Refreshing news index...")
+    try:
+        result = rag_system.refresh_news()
+        print(f"News: +{result['articles_added']} articles, +{result['chunks_added']} chunks")
+    except Exception as e:
+        print(f"Error refreshing news (non-fatal): {e}")
 
 # Custom static file handler with no-cache headers for development
 from fastapi.staticfiles import StaticFiles

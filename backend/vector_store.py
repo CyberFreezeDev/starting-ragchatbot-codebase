@@ -2,7 +2,8 @@ import chromadb
 from chromadb.config import Settings
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-from models import Course, CourseChunk
+from datetime import datetime, timezone
+from models import Course, CourseChunk, NewsChunk
 from sentence_transformers import SentenceTransformer
 
 @dataclass
@@ -50,6 +51,7 @@ class VectorStore:
         # Create collections for different types of data
         self.course_catalog = self._create_collection("course_catalog")  # Course titles/instructors
         self.course_content = self._create_collection("course_content")  # Actual course material
+        self.news_content = self._create_collection("news_content")      # Live news chunks
     
     def _create_collection(self, name: str):
         """Create or get a ChromaDB collection"""
@@ -268,4 +270,124 @@ class VectorStore:
             return None
         except Exception as e:
             print(f"Error getting lesson link: {e}")
-    
+
+    # ------------------------------------------------------------------ #
+    #  News methods                                                        #
+    # ------------------------------------------------------------------ #
+
+    def add_news_chunks(self, chunks: List[NewsChunk]):
+        """Embed and store news article chunks in the news_content collection."""
+        if not chunks:
+            return
+
+        documents = [c.content for c in chunks]
+        metadatas = [{
+            "url": c.url,
+            "title": c.title,
+            "source": c.source,
+            "section": c.section,
+            "published_at": c.published_at or "",
+            "fetched_at": c.fetched_at,
+            "chunk_index": c.chunk_index,
+        } for c in chunks]
+        # ID = url + chunk index to allow multiple chunks per article
+        ids = [f"{c.url}__chunk_{c.chunk_index}" for c in chunks]
+
+        self.news_content.add(documents=documents, metadatas=metadatas, ids=ids)
+
+    def search_news(self,
+                    query: str,
+                    section: Optional[str] = None,
+                    max_hours_old: Optional[int] = None,
+                    limit: Optional[int] = None) -> SearchResults:
+        """
+        Semantic search over indexed news chunks.
+
+        Args:
+            query: What to search for
+            section: Optional news section filter (e.g. 'technology')
+            max_hours_old: Only return articles fetched within this many hours
+            limit: Max results (falls back to self.max_results)
+        """
+        search_limit = limit if limit is not None else self.max_results
+        where_filter = None
+
+        if section:
+            where_filter = {"section": section}
+
+        try:
+            results = self.news_content.query(
+                query_texts=[query],
+                n_results=search_limit,
+                where=where_filter,
+            )
+            sr = SearchResults.from_chroma(results)
+
+            # Client-side freshness filter (ChromaDB doesn't support datetime comparisons)
+            if max_hours_old is not None and not sr.is_empty():
+                now = datetime.now(timezone.utc)
+                filtered_docs, filtered_meta, filtered_dist = [], [], []
+                for doc, meta, dist in zip(sr.documents, sr.metadata, sr.distances):
+                    fetched_str = meta.get("fetched_at", "")
+                    try:
+                        fetched_dt = datetime.fromisoformat(fetched_str)
+                        age_hours = (now - fetched_dt).total_seconds() / 3600
+                        if age_hours <= max_hours_old:
+                            filtered_docs.append(doc)
+                            filtered_meta.append(meta)
+                            filtered_dist.append(dist)
+                    except Exception:
+                        filtered_docs.append(doc)  # keep if parse fails
+                        filtered_meta.append(meta)
+                        filtered_dist.append(dist)
+                sr = SearchResults(
+                    documents=filtered_docs,
+                    metadata=filtered_meta,
+                    distances=filtered_dist,
+                )
+            return sr
+        except Exception as e:
+            return SearchResults.empty(f"News search error: {str(e)}")
+
+    def get_existing_news_urls(self) -> List[str]:
+        """Return URLs of all articles currently in the news_content collection."""
+        try:
+            results = self.news_content.get()
+            if not results or not results.get("metadatas"):
+                return []
+            seen = set()
+            urls = []
+            for meta in results["metadatas"]:
+                url = meta.get("url", "")
+                if url and url not in seen:
+                    seen.add(url)
+                    urls.append(url)
+            return urls
+        except Exception as e:
+            print(f"Error getting existing news URLs: {e}")
+            return []
+
+    def clear_old_news(self, retention_hours: int):
+        """Delete news chunks fetched more than retention_hours ago."""
+        try:
+            results = self.news_content.get()
+            if not results or not results.get("ids"):
+                return
+
+            now = datetime.now(timezone.utc)
+            ids_to_delete = []
+            for doc_id, meta in zip(results["ids"], results["metadatas"]):
+                fetched_str = meta.get("fetched_at", "")
+                try:
+                    fetched_dt = datetime.fromisoformat(fetched_str)
+                    age_hours = (now - fetched_dt).total_seconds() / 3600
+                    if age_hours > retention_hours:
+                        ids_to_delete.append(doc_id)
+                except Exception:
+                    pass  # keep if we can't parse
+
+            if ids_to_delete:
+                self.news_content.delete(ids=ids_to_delete)
+                print(f"[VectorStore] Pruned {len(ids_to_delete)} stale news chunks")
+        except Exception as e:
+            print(f"Error clearing old news: {e}")
