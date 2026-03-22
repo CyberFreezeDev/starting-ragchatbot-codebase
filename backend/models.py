@@ -20,3 +20,6 @@ class CourseChunk(BaseModel):
     course_title: str                   # Which course this chunk belongs to
     lesson_number: Optional[int] = None # Which lesson this chunk is from
     chunk_index: int                    # Position of this chunk in the document
+    source_file: Optional[str] = None  # Original filename (e.g. course1_script.txt)
+    start_line: Optional[int] = None   # First line of the lesson in the source file
+    end_line: Optional[int] = None     # Last line of the lesson in the source file

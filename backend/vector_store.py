@@ -168,7 +168,11 @@ class VectorStore:
         metadatas = [{
             "course_title": chunk.course_title,
             "lesson_number": chunk.lesson_number,
-            "chunk_index": chunk.chunk_index
+
+            "chunk_index": chunk.chunk_index,
+            "source_file": chunk.source_file or "",
+            "start_line": chunk.start_line or 0,
+            "end_line": chunk.end_line or 0
         } for chunk in chunks]
         # Use title with chunk index for unique IDs
         ids = [f"{chunk.course_title.replace(' ', '_')}_{chunk.chunk_index}" for chunk in chunks]

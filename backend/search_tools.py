@@ -96,17 +96,24 @@ class CourseSearchTool(Tool):
         for doc, meta in zip(results.documents, results.metadata):
             course_title = meta.get('course_title', 'unknown')
             lesson_num = meta.get('lesson_number')
-            
+            source_file = meta.get('source_file', '')
+            start_line = meta.get('start_line', 0)
+            end_line = meta.get('end_line', 0)
+
             # Build context header
             header = f"[{course_title}"
             if lesson_num is not None:
                 header += f" - Lesson {lesson_num}"
             header += "]"
-            
-            # Track source for the UI
+
+            # Build source reference with file + line range
             source = course_title
             if lesson_num is not None:
                 source += f" - Lesson {lesson_num}"
+            if source_file and start_line and end_line:
+                source += f" ({source_file}, lines {start_line}–{end_line})"
+            elif source_file:
+                source += f" ({source_file})"
             sources.append(source)
             
             formatted.append(f"{header}\n{doc}")

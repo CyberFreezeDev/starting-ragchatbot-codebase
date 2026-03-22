@@ -151,97 +151,101 @@ class DocumentProcessor:
         lesson_title = None
         lesson_link = None
         lesson_content = []
+        lesson_start_line = None  # 1-based line number where lesson content begins
         chunk_counter = 0
-        
+
         # Start processing from line 4 (after metadata)
         start_index = 3
         if len(lines) > 3 and not lines[3].strip():
             start_index = 4  # Skip empty line after instructor
-        
+
         i = start_index
         while i < len(lines):
             line = lines[i]
-            
+
             # Check for lesson markers (e.g., "Lesson 0: Introduction")
             lesson_match = re.match(r'^Lesson\s+(\d+):\s*(.+)$', line.strip(), re.IGNORECASE)
-            
+
             if lesson_match:
                 # Process previous lesson if it exists
                 if current_lesson is not None and lesson_content:
                     lesson_text = '\n'.join(lesson_content).strip()
                     if lesson_text:
-                        # Add lesson to course
+                        lesson_end_line = i  # line before new lesson header (1-based)
                         lesson = Lesson(
                             lesson_number=current_lesson,
                             title=lesson_title,
                             lesson_link=lesson_link
                         )
                         course.lessons.append(lesson)
-                        
-                        # Create chunks for this lesson
+
                         chunks = self.chunk_text(lesson_text)
                         for idx, chunk in enumerate(chunks):
-                            # For the first chunk of each lesson, add lesson context
                             if idx == 0:
                                 chunk_with_context = f"Lesson {current_lesson} content: {chunk}"
                             else:
                                 chunk_with_context = chunk
-                            
+
                             course_chunk = CourseChunk(
                                 content=chunk_with_context,
                                 course_title=course.title,
                                 lesson_number=current_lesson,
-                                chunk_index=chunk_counter
+                                chunk_index=chunk_counter,
+                                source_file=filename,
+                                start_line=lesson_start_line,
+                                end_line=lesson_end_line
                             )
                             course_chunks.append(course_chunk)
                             chunk_counter += 1
-                
+
                 # Start new lesson
                 current_lesson = int(lesson_match.group(1))
                 lesson_title = lesson_match.group(2).strip()
                 lesson_link = None
-                
+
                 # Check if next line is a lesson link
                 if i + 1 < len(lines):
                     next_line = lines[i + 1].strip()
                     link_match = re.match(r'^Lesson Link:\s*(.+)$', next_line, re.IGNORECASE)
                     if link_match:
                         lesson_link = link_match.group(1).strip()
-                        i += 1  # Skip the link line so it's not added to content
-                
+                        i += 1  # Skip the link line
+
                 lesson_content = []
+                lesson_start_line = i + 2  # 1-based, content starts after this header line
             else:
-                # Add line to current lesson content
                 lesson_content.append(line)
-                
+
             i += 1
-        
+
         # Process the last lesson
         if current_lesson is not None and lesson_content:
             lesson_text = '\n'.join(lesson_content).strip()
             if lesson_text:
+                lesson_end_line = len(lines)
                 lesson = Lesson(
                     lesson_number=current_lesson,
                     title=lesson_title,
                     lesson_link=lesson_link
                 )
                 course.lessons.append(lesson)
-                
+
                 chunks = self.chunk_text(lesson_text)
                 for idx, chunk in enumerate(chunks):
-                    # For any chunk of each lesson, add lesson context & course title
-                  
                     chunk_with_context = f"Course {course_title} Lesson {current_lesson} content: {chunk}"
-                    
+
                     course_chunk = CourseChunk(
                         content=chunk_with_context,
                         course_title=course.title,
                         lesson_number=current_lesson,
-                        chunk_index=chunk_counter
+                        chunk_index=chunk_counter,
+                        source_file=filename,
+                        start_line=lesson_start_line,
+                        end_line=lesson_end_line
                     )
                     course_chunks.append(course_chunk)
                     chunk_counter += 1
-        
+
         # If no lessons found, treat entire content as one document
         if not course_chunks and len(lines) > 2:
             remaining_content = '\n'.join(lines[start_index:]).strip()
@@ -251,9 +255,12 @@ class DocumentProcessor:
                     course_chunk = CourseChunk(
                         content=chunk,
                         course_title=course.title,
-                        chunk_index=chunk_counter
+                        chunk_index=chunk_counter,
+                        source_file=filename,
+                        start_line=start_index + 1,
+                        end_line=len(lines)
                     )
                     course_chunks.append(course_chunk)
                     chunk_counter += 1
-        
+
         return course, course_chunks
